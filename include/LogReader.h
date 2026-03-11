@@ -50,6 +50,13 @@ public:
      */
     bool isFileLoaded() const;
     
+    /**
+     * @brief Read all lines from a log file directly
+     * @param filePath Path to the log file
+     * @return Vector containing all log lines, empty if error
+     */
+    static std::vector<std::string> readLogFile(const std::string& filePath);
+    
 private:
     std::string m_filePath;
     bool m_fileLoaded;
