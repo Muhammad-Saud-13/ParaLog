@@ -115,7 +115,74 @@ paralog path/to/logfile.log --mode gpu
 ## 🧪 Testing with Sample Data
 
 ```bash
-# Use the provided sample log file
+# Small sample (25 lines) - Quick test
 paralog data/sample.log
+
+# Medium sample (95 lines) - Detailed test
+paralog data/large_sample.log
+
+# Large stress test (25,000 lines) - Performance benchmark
+paralog data/stress_test.log
 ```
+
+## 📈 Development Phases
+
+### ✅ Phase 1: Project Initialization (Complete)
+- [x] Repository structure
+- [x] CMake configuration
+- [x] Placeholder modules
+- [x] Basic compilation test
+
+### ✅ Phase 2: Log File Reader (Complete)
+- [x] LogReader class implementation
+- [x] Line-by-line file reading
+- [x] Error handling
+- [x] Sample data files
+
+### ✅ Phase 3: Serial Analyzer - Baseline (Complete)
+- [x] Serial analysis algorithm
+- [x] Pattern matching (ERROR/WARNING/INFO)
+- [x] Statistics computation
+- [x] Performance measurement with chrono
+- [x] Throughput calculation
+- [x] Tested with 25K lines: ~926K lines/second
+
+### 🔄 Phase 4: Parallel CPU (OpenMP) (Upcoming)
+- [ ] OpenMP parallel analysis
+- [ ] Thread optimization
+- [ ] Performance comparison vs serial
+- [ ] Speedup calculation
+
+### 🔄 Phase 5: Distributed Processing (MPI) (Upcoming)
+- [ ] MPI implementation
+- [ ] Data distribution strategy
+- [ ] Cluster benchmarking
+- [ ] Scalability testing
+
+### 🔄 Phase 6: GPU Acceleration (OpenCL) (Upcoming)
+- [ ] OpenCL kernel implementation
+- [ ] GPU memory management
+- [ ] Performance optimization
+- [ ] Comparison with CPU implementations
+
+## 🤝 Contributing
+
+This is an educational project demonstrating parallel computing paradigms. Future enhancements may include:
+- Support for different log formats
+- Advanced pattern matching
+- Real-time log streaming
+- Web-based visualization dashboard
+
+## 📄 License
+
+This project is for educational purposes.
+
+## 👨‍💻 Author
+
+PDC Labs - Parallel and Distributed Computing
+
+---
+
+**Current Status**: Phase 3 Complete - Serial baseline analyzer implemented and tested!  
+**Next up**: Phase 4 - OpenMP parallel implementation
 
