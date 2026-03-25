@@ -1,7 +1,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <exception> // Include for std::exception
+#include <exception> 
+#include "LogReader.h"
+#include <omp.h>
 #include "LogReader.h"
 #include "LogAnalyzer.h"
 
@@ -13,12 +15,10 @@ void printBanner() {
 }
 
 void printUsage(const char* programName) {
-    std::cout << "Usage: " << programName << " <log_file_path>\n";
-    std::cout << "\nAnalysis modes:\n";
-    std::cout << "  ✓ Serial (baseline) - Implemented\n";
-    std::cout << "  - Parallel CPU (OpenMP) - Coming soon\n";
-    std::cout << "  - Distributed (MPI) - Coming soon\n";
-    std::cout << "  - GPU Accelerated (OpenCL) - Coming soon\n";
+    std::cout << "Usage: " << programName << " <log_file_path> [mode]\n";
+    std::cout << "\nAnalysis modes (optional, defaults to parallel):\n";
+    std::cout << "  serial   - Single-threaded analysis (baseline)\n";
+    std::cout << "  parallel - Multi-threaded analysis using OpenMP\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -31,8 +31,26 @@ int main(int argc, char* argv[]) {
         }
         
         std::string logFilePath = argv[1];
+        AnalysisMode mode = AnalysisMode::PARALLEL_OMP; // Default to parallel
+        std::string modeStr = "parallel";
+
+        if (argc > 2) {
+            modeStr = argv[2];
+            if (modeStr == "serial") {
+                mode = AnalysisMode::SERIAL;
+            } else if (modeStr == "parallel") {
+                mode = AnalysisMode::PARALLEL_OMP;
+            } else {
+                std::cout << "[WARN] Unknown mode '" << modeStr << "'. Defaulting to parallel.\n\n";
+            }
+        }
         
-        std::cout << "[INFO] Starting analysis of: " << logFilePath << "\n\n";
+        std::cout << "[INFO] Starting analysis of: " << logFilePath << "\n";
+        std::cout << "[INFO] Mode selected: " << modeStr << "\n\n";
+
+        if (mode == AnalysisMode::PARALLEL_OMP) {
+            std::cout << "[INFO] OpenMP will use up to " << omp_get_max_threads() << " threads.\n\n";
+        }
         
         // Step 1: Initialize LogReader and LogAnalyzer
         LogReader reader(logFilePath);
@@ -44,12 +62,10 @@ int main(int argc, char* argv[]) {
         LogAnalyzer analyzer;
         std::vector<std::string> logLines;
 
-        std::cout << "[INFO] Running serial analysis (baseline)..." << std::endl;
-
         // Step 2: Read and analyze the file in chunks
         while (reader.readNextChunk(logLines)) {
             if (!logLines.empty()) {
-                analyzer.analyze(logLines, AnalysisMode::SERIAL);
+                analyzer.analyze(logLines, mode);
             }
         }
         
@@ -77,7 +93,7 @@ int main(int argc, char* argv[]) {
                       << " ms/line\n" << std::endl;
         }
         
-        std::cout << "[SUCCESS] Phase 3 complete - Serial baseline established!" << std::endl;
+        std::cout << "[SUCCESS] Analysis complete!\n" << std::endl;
         
     } catch (const std::exception& e) {
         std::cerr << "\n\n[FATAL ERROR] An unhandled exception occurred: " << e.what() << std::endl;

@@ -2,6 +2,7 @@
 #include <iostream>
 #include <algorithm>
 #include <chrono>
+#include <omp.h>
 
 void LogStatistics::print() const {
     std::cout << "\n========================================\n";
@@ -75,10 +76,33 @@ void LogAnalyzer::analyzeSerial(const std::vector<std::string>& lines) {
 }
 
 void LogAnalyzer::analyzeParallel(const std::vector<std::string>& lines) {
-    // Placeholder - will be implemented in future phases with OpenMP
-    std::cout << "[WARN] Parallel OpenMP analysis not yet implemented\n";
-    std::cout << "[INFO] Falling back to serial analysis\n";
-    analyzeSerial(lines);
+    size_t local_totalLines = 0;
+    size_t local_errorCount = 0;
+    size_t local_warningCount = 0;
+    size_t local_infoCount = 0;
+    size_t local_otherCount = 0;
+
+    #pragma omp parallel for reduction(+:local_totalLines, local_errorCount, local_warningCount, local_infoCount, local_otherCount)
+    for (size_t i = 0; i < lines.size(); ++i) {
+        local_totalLines++;
+        std::string classification = classifyLine(lines[i]);
+        
+        if (classification == "ERROR") {
+            local_errorCount++;
+        } else if (classification == "WARNING") {
+            local_warningCount++;
+        } else if (classification == "INFO") {
+            local_infoCount++;
+        } else {
+            local_otherCount++;
+        }
+    }
+
+    m_stats.totalLines += local_totalLines;
+    m_stats.errorCount += local_errorCount;
+    m_stats.warningCount += local_warningCount;
+    m_stats.infoCount += local_infoCount;
+    m_stats.otherCount += local_otherCount;
 }
 
 void LogAnalyzer::analyzeDistributed(const std::vector<std::string>& lines) {

@@ -36,7 +36,59 @@ ParaLog/
 └── README.md              # Project documentation
 ```
 
-## 🛠️ Build Requirements
+## � Building and Running
+
+This project uses a PowerShell script to simplify the build and run process on Windows.
+
+### 1. Build the Project
+
+Open a PowerShell terminal in the project root and run the `build.ps1` script. You can specify `release` or `debug`.
+
+```powershell
+# Build in Release mode (recommended for performance)
+.\build.ps1 release
+
+# Build in Debug mode
+.\build.ps1 debug
+```
+
+### 2. Run the Application
+
+You can run the application using the `build.ps1` script or by calling the executable directly.
+
+#### Using the Build Script
+
+The script will automatically build the project if needed and then run it.
+
+```powershell
+# Run analysis in parallel mode (default)
+.\build.ps1 run data/stress_test.log
+
+# Explicitly run analysis in parallel mode
+.\build.ps1 run data/stress_test.log parallel
+
+# Explicitly run analysis in serial mode
+.\build.ps1 run data/stress_test.log serial
+```
+
+#### Running the Executable Directly
+
+Once the project is built, you can run the executable from the root directory.
+
+```powershell
+# SYNTAX: .\build\bin\paralog.exe <log_file_path> [mode]
+
+# Run analysis in parallel mode (default)
+.\build\bin\paralog.exe data/stress_test.log
+
+# Explicitly run analysis in parallel mode
+.\build\bin\paralog.exe data/stress_test.log parallel
+
+# Explicitly run analysis in serial mode
+.\build\bin\paralog.exe data/stress_test.log serial
+```
+
+## �🛠️ Build Requirements
 
 - **C++ Compiler**: C++17 or later (MSVC, GCC, or Clang)
 - **CMake**: Version 3.15 or higher
