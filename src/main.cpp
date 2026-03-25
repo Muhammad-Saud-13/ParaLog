@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <exception> // Include for std::exception
 #include "LogReader.h"
 #include "LogAnalyzer.h"
 
@@ -21,64 +22,70 @@ void printUsage(const char* programName) {
 }
 
 int main(int argc, char* argv[]) {
-    printBanner();
-    
-    std::cout << "[INFO] ParaLog is starting up...\n";
-    std::cout << "[INFO] Environment configured successfully.\n";
-    std::cout << "[INFO] System ready for log analysis.\n\n";
-    
-    if (argc < 2) {
-        std::cout << "[WARN] No log file specified.\n\n";
-        printUsage(argv[0]);
-        return 0;
-    }
-    
-    std::string logFilePath = argv[1];
-    
-    // Phase 3: Serial Baseline Implementation
-    std::cout << "[INFO] Starting Phase 3: Serial Log Analysis\n";
-    std::cout << "[INFO] Target file: " << logFilePath << "\n\n";
-    
-    // Step 1: Load log file using LogReader
-    LogReader reader;
-    std::cout << "[INFO] Loading log file...\n";
-    
-    if (!reader.loadFile(logFilePath)) {
-        std::cerr << "[ERROR] Failed to load log file. Exiting.\n";
+    try {
+        printBanner();
+        
+        if (argc < 2) {
+            printUsage(argv[0]);
+            return 0;
+        }
+        
+        std::string logFilePath = argv[1];
+        
+        std::cout << "[INFO] Starting analysis of: " << logFilePath << "\n\n";
+        
+        // Step 1: Initialize LogReader and LogAnalyzer
+        LogReader reader(logFilePath);
+        if (!reader.isOpen()) {
+            std::cerr << "[ERROR] Failed to open log file. Exiting." << std::endl;
+            return 1;
+        }
+        
+        LogAnalyzer analyzer;
+        std::vector<std::string> logLines;
+
+        std::cout << "[INFO] Running serial analysis (baseline)..." << std::endl;
+
+        // Step 2: Read and analyze the file in chunks
+        while (reader.readNextChunk(logLines)) {
+            if (!logLines.empty()) {
+                analyzer.analyze(logLines, AnalysisMode::SERIAL);
+            }
+        }
+        
+        std::cout << "\n[INFO] Finished processing all chunks." << std::endl;
+
+        // Step 3: Display results
+        LogStatistics results = analyzer.getStatistics();
+        
+        if (results.totalLines == 0) {
+            std::cout << "[WARN] No lines were processed. The log file might be empty." << std::endl;
+        }
+
+        std::cout << "[INFO] Analysis complete!" << std::endl;
+        results.print();
+        
+        // Performance summary
+        double linesPerSecond = (results.processingTimeMs > 0) 
+            ? (static_cast<double>(results.totalLines) / (results.processingTimeMs / 1000.0)) 
+            : 0;
+        
+        std::cout << "Performance Metrics:" << std::endl;
+        std::cout << "  Throughput: " << static_cast<size_t>(linesPerSecond) << " lines/second" << std::endl;
+        if (results.totalLines > 0) {
+            std::cout << "  Average: " << (results.processingTimeMs / static_cast<double>(results.totalLines)) 
+                      << " ms/line\n" << std::endl;
+        }
+        
+        std::cout << "[SUCCESS] Phase 3 complete - Serial baseline established!" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "\n\n[FATAL ERROR] An unhandled exception occurred: " << e.what() << std::endl;
+        return 1;
+    } catch (...) {
+        std::cerr << "\n\n[FATAL ERROR] An unknown non-standard exception occurred." << std::endl;
         return 1;
     }
-    
-    std::cout << "[INFO] Reading log lines into memory...\n";
-    std::vector<std::string> logLines = reader.readAllLines();
-    
-    if (logLines.empty()) {
-        std::cerr << "[ERROR] No data read from file. Exiting.\n";
-        return 1;
-    }
-    
-    std::cout << "[INFO] Successfully loaded " << logLines.size() << " lines\n\n";
-    
-    // Step 2: Analyze using serial baseline algorithm
-    LogAnalyzer analyzer;
-    std::cout << "[INFO] Running serial analysis (baseline)...\n";
-    
-    LogStatistics results = analyzer.analyzeSerial(logLines);
-    
-    // Step 3: Display results
-    std::cout << "[INFO] Analysis complete!\n";
-    results.print();
-    
-    // Performance summary
-    double linesPerSecond = (results.processingTimeMs > 0) 
-        ? (results.totalLines / (results.processingTimeMs / 1000.0)) 
-        : 0;
-    
-    std::cout << "Performance Metrics:\n";
-    std::cout << "  Throughput: " << static_cast<size_t>(linesPerSecond) << " lines/second\n";
-    std::cout << "  Average: " << (results.processingTimeMs / static_cast<double>(results.totalLines)) 
-              << " ms/line\n\n";
-    
-    std::cout << "[SUCCESS] Phase 3 complete - Serial baseline established!\n";
     
     return 0;
 }

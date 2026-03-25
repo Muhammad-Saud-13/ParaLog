@@ -3,12 +3,13 @@
 
 #include <string>
 #include <vector>
+#include <fstream>
 
 /**
  * @brief LogReader class responsible for reading and parsing log files
  * 
  * This class will handle:
- * - Reading large log files efficiently
+ * - Reading large log files efficiently in chunks
  * - Parsing log entries line by line
  * - Buffering data for processing
  * - Supporting different log formats (if needed)
@@ -16,51 +17,33 @@
 class LogReader {
 public:
     /**
-     * @brief Default constructor
+     * @brief Constructor that takes the file path and opens the file.
+     * @param filePath Path to the log file
      */
-    LogReader();
+    explicit LogReader(const std::string& filePath);
     
     /**
      * @brief Destructor
      */
     ~LogReader();
-    
+
     /**
-     * @brief Load a log file for analysis
-     * @param filePath Path to the log file
-     * @return true if file loaded successfully, false otherwise
+     * @brief Checks if the file was successfully opened.
+     * @return True if the file is open, false otherwise.
      */
-    bool loadFile(const std::string& filePath);
-    
+    bool isOpen() const;
+
     /**
-     * @brief Get the total number of lines in the loaded file
-     * @return Number of lines
+     * @brief Reads the next chunk of lines from the file.
+     * @param lines A vector to be filled with the lines from the chunk.
+     * @param chunkSize The desired size of the chunk in bytes.
+     * @return True if lines were read, false if the end of the file has been reached.
      */
-    size_t getLineCount() const;
-    
-    /**
-     * @brief Read all lines from the log file
-     * @return Vector containing all log lines
-     */
-    std::vector<std::string> readAllLines() const;
-    
-    /**
-     * @brief Check if a file is currently loaded
-     * @return true if file is loaded, false otherwise
-     */
-    bool isFileLoaded() const;
-    
-    /**
-     * @brief Read all lines from a log file directly
-     * @param filePath Path to the log file
-     * @return Vector containing all log lines, empty if error
-     */
-    static std::vector<std::string> readLogFile(const std::string& filePath);
-    
+    bool readNextChunk(std::vector<std::string>& lines, size_t chunkSize = 16 * 1024 * 1024);
+
 private:
-    std::string m_filePath;
-    bool m_fileLoaded;
-    size_t m_lineCount;
+    std::ifstream m_fileStream;
+    std::string m_leftover; // Holds partial line from the end of the previous chunk
 };
 
 #endif // LOGREADER_H

@@ -2,14 +2,14 @@
 # Usage: .\build.ps1 [clean|release|debug|run|test]
 
 param(
-    [string]$Action = "release"
+    [string]$Action = "debug" # Default to debug for better diagnostics
 )
 
 $ProjectRoot = $PSScriptRoot
 $BuildDir = Join-Path $ProjectRoot "build"
 
 function Build-Project {
-    param([string]$BuildType = "Release")
+    param([string]$BuildType = "Release") # Default to Release
     
     Write-Host "========================================" -ForegroundColor Cyan
     Write-Host "  Building ParaLog ($BuildType)" -ForegroundColor Cyan
@@ -26,7 +26,7 @@ function Build-Project {
     try {
         # Run CMake configuration
         Write-Host "`nConfiguring CMake..." -ForegroundColor Yellow
-        cmake .. -DCMAKE_BUILD_TYPE=$BuildType
+        cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=$BuildType
         
         if ($LASTEXITCODE -ne 0) {
             throw "CMake configuration failed"
@@ -47,8 +47,9 @@ function Build-Project {
         Pop-Location
         exit 1
     }
-    
-    Pop-Location
+    finally {
+        Pop-Location
+    }
 }
 
 function Clean-Project {
@@ -90,26 +91,33 @@ switch ($Action.ToLower()) {
         Clean-Project
     }
     "release" {
-        Build-Project "Release"
+        Build-Project -BuildType "Release"
     }
     "debug" {
-        Build-Project "Debug"
+        Build-Project -BuildType "Debug"
     }
     "run" {
-        Run-Project
+        # Determine build type to run, default to Release
+        $BuildTypeForRun = "Release"
+        $ExePath = Join-Path $BuildDir "bin/paralog.exe"
+
+        if (-not (Test-Path $ExePath)) {
+            Write-Host "Executable not found. Building release version first..." -ForegroundColor Yellow
+            Build-Project -BuildType $BuildTypeForRun
+        }
+        
+        # Forward remaining arguments to the executable
+        $RemainingArgs = $args | Where-Object { $_ -ne $Action }
+        
+        Write-Host "`nRunning ParaLog..." -ForegroundColor Cyan
+        & $ExePath $RemainingArgs
     }
     "test" {
-        $SampleLog = Join-Path $ProjectRoot "data\sample.log"
-        Run-Project $SampleLog
+        Write-Host "Test runner not yet implemented." -ForegroundColor Yellow
     }
     default {
-        Write-Host "Usage: .\build.ps1 [clean|release|debug|run|test]" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "Commands:"
-        Write-Host "  clean   - Remove build directory"
-        Write-Host "  release - Build in Release mode (default)"
-        Write-Host "  debug   - Build in Debug mode"
-        Write-Host "  run     - Run the application"
-        Write-Host "  test    - Run with sample log file"
+        Write-Host "Unknown action: $Action" -ForegroundColor Red
+        Write-Host "Usage: .\build.ps1 [clean|release|debug|run|test]"
+        exit 1
     }
 }

@@ -18,76 +18,81 @@ void LogStatistics::print() const {
 }
 
 LogAnalyzer::LogAnalyzer() {
-    // Constructor - placeholder for future initialization
+    // Constructor initializes the cumulative statistics
+    m_stats = {};
 }
 
 LogAnalyzer::~LogAnalyzer() {
     // Destructor - placeholder for future cleanup
 }
 
-LogStatistics LogAnalyzer::analyze(const std::vector<std::string>& lines, AnalysisMode mode) {
+void LogAnalyzer::analyze(const std::vector<std::string>& lines, AnalysisMode mode) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
     switch (mode) {
         case AnalysisMode::SERIAL:
-            return analyzeSerial(lines);
+            analyzeSerial(lines);
+            break;
         case AnalysisMode::PARALLEL_OMP:
-            return analyzeParallel(lines);
+            analyzeParallel(lines);
+            break;
         case AnalysisMode::DISTRIBUTED:
-            return analyzeDistributed(lines);
+            analyzeDistributed(lines);
+            break;
         case AnalysisMode::GPU_OPENCL:
-            return analyzeGPU(lines);
+            analyzeGPU(lines);
+            break;
         default:
-            return analyzeSerial(lines);
+            analyzeSerial(lines);
+            break;
     }
+
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    m_stats.processingTimeMs += duration.count();
 }
 
-LogStatistics LogAnalyzer::analyzeSerial(const std::vector<std::string>& lines) {
-    // Placeholder implementation with basic serial analysis
-    LogStatistics stats;
-    
-    auto startTime = std::chrono::high_resolution_clock::now();
-    
-    stats.totalLines = lines.size();
+LogStatistics LogAnalyzer::getStatistics() const {
+    return m_stats;
+}
+
+void LogAnalyzer::analyzeSerial(const std::vector<std::string>& lines) {
+    m_stats.totalLines += lines.size();
     
     for (const auto& line : lines) {
         std::string classification = classifyLine(line);
         
         if (classification == "ERROR") {
-            stats.errorCount++;
+            m_stats.errorCount++;
         } else if (classification == "WARNING") {
-            stats.warningCount++;
+            m_stats.warningCount++;
         } else if (classification == "INFO") {
-            stats.infoCount++;
+            m_stats.infoCount++;
         } else {
-            stats.otherCount++;
+            m_stats.otherCount++;
         }
     }
-    
-    auto endTime = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-    stats.processingTimeMs = duration.count();
-    
-    return stats;
 }
 
-LogStatistics LogAnalyzer::analyzeParallel(const std::vector<std::string>& lines) {
+void LogAnalyzer::analyzeParallel(const std::vector<std::string>& lines) {
     // Placeholder - will be implemented in future phases with OpenMP
     std::cout << "[WARN] Parallel OpenMP analysis not yet implemented\n";
     std::cout << "[INFO] Falling back to serial analysis\n";
-    return analyzeSerial(lines);
+    analyzeSerial(lines);
 }
 
-LogStatistics LogAnalyzer::analyzeDistributed(const std::vector<std::string>& lines) {
+void LogAnalyzer::analyzeDistributed(const std::vector<std::string>& lines) {
     // Placeholder - will be implemented in future phases with MPI
     std::cout << "[WARN] Distributed MPI analysis not yet implemented\n";
     std::cout << "[INFO] Falling back to serial analysis\n";
-    return analyzeSerial(lines);
+    analyzeSerial(lines);
 }
 
-LogStatistics LogAnalyzer::analyzeGPU(const std::vector<std::string>& lines) {
-    // Placeholder - will be implemented in future phases with OpenCL
+void LogAnalyzer::analyzeGPU(const std::vector<std::string>& lines) {
+    
     std::cout << "[WARN] GPU OpenCL analysis not yet implemented\n";
     std::cout << "[INFO] Falling back to serial analysis\n";
-    return analyzeSerial(lines);
+    analyzeSerial(lines);
 }
 
 std::string LogAnalyzer::classifyLine(const std::string& line) const {
@@ -99,8 +104,7 @@ std::string LogAnalyzer::classifyLine(const std::string& line) const {
     
     if (upperLine.find("ERROR") != std::string::npos) {
         return "ERROR";
-    } else if (upperLine.find("WARNING") != std::string::npos || 
-               upperLine.find("WARN") != std::string::npos) {
+    } else if (upperLine.find("WARNING") != std::string::npos) {
         return "WARNING";
     } else if (upperLine.find("INFO") != std::string::npos) {
         return "INFO";

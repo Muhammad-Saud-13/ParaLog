@@ -29,17 +29,11 @@ enum class AnalysisMode {
     SERIAL,        // Baseline serial implementation
     PARALLEL_OMP,  // OpenMP parallel implementation
     DISTRIBUTED,   // MPI distributed implementation
-    GPU_OPENCL     // OpenCL GPU implementation
+    GPU_OPENCL     // GPU-accelerated implementation
 };
 
 /**
  * @brief LogAnalyzer class responsible for analyzing log data
- * 
- * This class will support multiple analysis implementations:
- * - Serial baseline
- * - Parallel CPU (OpenMP)
- * - Distributed (MPI)
- * - GPU accelerated (OpenCL)
  */
 class LogAnalyzer {
 public:
@@ -54,49 +48,51 @@ public:
     ~LogAnalyzer();
     
     /**
-     * @brief Analyze log lines and compute statistics
+     * @brief Analyze a chunk of log lines using a specified mode
      * @param lines Vector of log lines to analyze
-     * @param mode Analysis mode to use
-     * @return LogStatistics containing the results
+     * @param mode The analysis mode to use (SERIAL, PARALLEL_OMP, etc.)
      */
-    LogStatistics analyze(const std::vector<std::string>& lines, 
-                         AnalysisMode mode = AnalysisMode::SERIAL);
+    void analyze(const std::vector<std::string>& lines, AnalysisMode mode);
     
     /**
-     * @brief Analyze log lines using serial implementation (baseline)
-     * @param lines Vector of log lines to analyze
-     * @return LogStatistics containing the results
+     * @brief Get the final aggregated statistics
+     * @return The final LogStatistics object
      */
-    LogStatistics analyzeSerial(const std::vector<std::string>& lines);
-    
-    /**
-     * @brief Analyze log lines using OpenMP parallel implementation
-     * @param lines Vector of log lines to analyze
-     * @return LogStatistics containing the results
-     */
-    LogStatistics analyzeParallel(const std::vector<std::string>& lines);
-    
-    /**
-     * @brief Analyze log lines using MPI distributed implementation
-     * @param lines Vector of log lines to analyze
-     * @return LogStatistics containing the results
-     */
-    LogStatistics analyzeDistributed(const std::vector<std::string>& lines);
-    
-    /**
-     * @brief Analyze log lines using GPU OpenCL implementation
-     * @param lines Vector of log lines to analyze
-     * @return LogStatistics containing the results
-     */
-    LogStatistics analyzeGPU(const std::vector<std::string>& lines);
-    
+    LogStatistics getStatistics() const;
+
 private:
+    /**
+     * @brief Analyze a chunk of log lines using a serial algorithm
+     * @param lines Vector of log lines to analyze
+     */
+    void analyzeSerial(const std::vector<std::string>& lines);
+    
+    /**
+     * @brief Analyze a chunk of log lines using a parallel algorithm (placeholder)
+     * @param lines Vector of log lines to analyze
+     */
+    void analyzeParallel(const std::vector<std::string>& lines);
+    
+    /**
+     * @brief Analyze a chunk of log lines using a distributed algorithm (placeholder)
+     * @param lines Vector of log lines to analyze
+     */
+    void analyzeDistributed(const std::vector<std::string>& lines);
+    
+    /**
+     * @brief Analyze a chunk of log lines using a GPU-accelerated algorithm (placeholder)
+     * @param lines Vector of log lines to analyze
+     */
+    void analyzeGPU(const std::vector<std::string>& lines);
+    
     /**
      * @brief Classify a single log line
      * @param line The log line to classify
-     * @return Classification result (ERROR, WARNING, INFO, OTHER)
+     * @return A string representing the classification (e.g., "ERROR")
      */
     std::string classifyLine(const std::string& line) const;
+    
+    LogStatistics m_stats; // Cumulative statistics
 };
 
 #endif // LOGANALYZER_H

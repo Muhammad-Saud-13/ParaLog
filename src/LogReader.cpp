@@ -1,74 +1,64 @@
 #include "LogReader.h"
-#include <fstream>
 #include <iostream>
+#include <sstream>
 
-LogReader::LogReader() 
-    : m_filePath(""), m_fileLoaded(false), m_lineCount(0) {
-    // Constructor - placeholder for future initialization
+LogReader::LogReader(const std::string& filePath) {
+    m_fileStream.open(filePath, std::ios::in | std::ios::binary);
+    if (!m_fileStream.is_open()) {
+        std::cerr << "[ERROR] LogReader: Failed to open file in constructor: " << filePath << std::endl << std::flush;
+    }
 }
 
 LogReader::~LogReader() {
-    // Destructor - placeholder for future cleanup
+    if (m_fileStream.is_open()) {
+        m_fileStream.close();
+    }
 }
 
-bool LogReader::loadFile(const std::string& filePath) {
-    // Placeholder implementation
-    // Future phases will implement:
-    // - File validation
-    // - Memory-mapped file reading for large files
-    // - Buffered reading strategies
-    
-    m_filePath = filePath;
-    
-    std::ifstream file(filePath);
-    if (!file.is_open()) {
-        std::cerr << "[ERROR] Failed to open file: " << filePath << std::endl;
-        m_fileLoaded = false;
+bool LogReader::isOpen() const {
+    return m_fileStream.is_open();
+}
+
+bool LogReader::readNextChunk(std::vector<std::string>& lines, size_t chunkSize) {
+    lines.clear();
+
+    if (!m_fileStream.is_open() || m_fileStream.eof()) {
         return false;
     }
-    
-    // Count lines (basic implementation)
-    m_lineCount = 0;
-    std::string line;
-    while (std::getline(file, line)) {
-        m_lineCount++;
-    }
-    
-    file.close();
-    m_fileLoaded = true;
-    
-    std::cout << "[INFO] File loaded: " << filePath << " (" << m_lineCount << " lines)\n";
-    return true;
-}
 
-size_t LogReader::getLineCount() const {
-    return m_lineCount;
-}
+    // Read a chunk of the file
+    std::vector<char> buffer(chunkSize);
+    m_fileStream.read(buffer.data(), chunkSize);
+    std::streamsize bytesRead = m_fileStream.gcount();
 
-std::vector<std::string> LogReader::readAllLines() const {
-    std::vector<std::string> lines;
-    
-    if (!m_fileLoaded) {
-        std::cerr << "[ERROR] No file loaded\n";
-        return lines;
+    if (bytesRead == 0 && m_leftover.empty()) {
+        return false;
     }
+
+    // Combine leftover from previous chunk with the new buffer
+    std::string data = m_leftover + std::string(buffer.data(), bytesRead);
     
-    std::ifstream file(m_filePath);
-    if (!file.is_open()) {
-        std::cerr << "[ERROR] Failed to open file: " << m_filePath << std::endl;
-        return lines;
-    }
-    
-    lines.reserve(m_lineCount);
+    // Process the data into lines
+    std::stringstream stream(data);
     std::string line;
-    while (std::getline(file, line)) {
+    while (std::getline(stream, line)) {
+        // Handle potential carriage returns for cross-platform compatibility
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
         lines.push_back(line);
     }
-    
-    file.close();
-    return lines;
-}
 
-bool LogReader::isFileLoaded() const {
-    return m_fileLoaded;
+    // If the file is not at the end and the last character wasn't a newline,
+    // the last line in our chunk is partial. Save it for the next chunk.
+    if (!m_fileStream.eof() && !data.empty() && data.back() != '\n') {
+        m_leftover = lines.back();
+        lines.pop_back();
+    } else {
+        m_leftover.clear();
+    }
+
+    // This ensures that even if the last chunk is empty, we don't stop prematurely
+    // if there was leftover data to be processed.
+    return !lines.empty() || !m_leftover.empty() || bytesRead > 0;
 }
