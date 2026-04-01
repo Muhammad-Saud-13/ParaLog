@@ -50,7 +50,7 @@ void LogAnalyzer::analyze(const std::vector<std::string>& lines, AnalysisMode mo
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-    m_stats.processingTimeMs += duration.count();
+    m_st ats.processingTimeMs += duration.count();
 }
 
 LogStatistics LogAnalyzer::getStatistics() const {
