@@ -2,63 +2,60 @@
 #include <iostream>
 #include <sstream>
 
-LogReader::LogReader(const std::string& filePath) {
-    m_fileStream.open(filePath, std::ios::in | std::ios::binary);
-    if (!m_fileStream.is_open()) {
+LogReader::LogReader(const std::string& filePath, size_t chunkSize) : m_chunkSize(chunkSize) {
+    m_file.open(filePath, std::ios::in | std::ios::binary);
+    if (!m_file.is_open()) {
         std::cerr << "[ERROR] LogReader: Failed to open file in constructor: " << filePath << std::endl << std::flush;
     }
 }
 
 LogReader::~LogReader() {
-    if (m_fileStream.is_open()) {
-        m_fileStream.close();
+    if (m_file.is_open()) {
+        m_file.close();
     }
 }
 
 bool LogReader::isOpen() const {
-    return m_fileStream.is_open();
+    return m_file.is_open();
 }
 
-bool LogReader::readNextChunk(std::vector<std::string>& lines, size_t chunkSize) {
+void LogReader::readAllLines(std::vector<std::string>& lines) {
+    if (!isOpen()) return;
+    m_file.clear();
+    m_file.seekg(0, std::ios::beg);
+    std::string line;
+    while (std::getline(m_file, line)) {
+        if (!line.empty()) {
+            lines.push_back(line);
+        }
+    }
+}
+
+bool LogReader::readNextChunk(std::vector<std::string>& lines) {
     lines.clear();
 
-    if (!m_fileStream.is_open() || m_fileStream.eof()) {
+    if (!m_file.is_open() || m_file.eof()) {
         return false;
     }
 
     // Read a chunk of the file
-    std::vector<char> buffer(chunkSize);
-    m_fileStream.read(buffer.data(), chunkSize);
-    std::streamsize bytesRead = m_fileStream.gcount();
+    std::vector<char> buffer(m_chunkSize);
+    m_file.read(buffer.data(), m_chunkSize);
+    std::streamsize bytesRead = m_file.gcount();
 
-    if (bytesRead == 0 && m_leftover.empty()) {
+    if (bytesRead == 0) {
         return false;
     }
-
-    // Combine leftover from previous chunk with the new buffer
-    std::string data = m_leftover + std::string(buffer.data(), bytesRead);
     
-    // Process the data into lines
-    std::stringstream stream(data);
+    std::string chunkStr(buffer.data(), bytesRead);
+    std::stringstream ss(chunkStr);
     std::string line;
-    while (std::getline(stream, line)) {
-        // Handle potential carriage returns for cross-platform compatibility
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
+
+    while(std::getline(ss, line)) {
+        if(!line.empty()) {
+            lines.push_back(line);
         }
-        lines.push_back(line);
     }
 
-    // If the file is not at the end and the last character wasn't a newline,
-    // the last line in our chunk is partial. Save it for the next chunk.
-    if (!m_fileStream.eof() && !data.empty() && data.back() != '\n') {
-        m_leftover = lines.back();
-        lines.pop_back();
-    } else {
-        m_leftover.clear();
-    }
-
-    // This ensures that even if the last chunk is empty, we don't stop prematurely
-    // if there was leftover data to be processed.
-    return !lines.empty() || !m_leftover.empty() || bytesRead > 0;
+    return true;
 }

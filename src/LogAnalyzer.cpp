@@ -1,17 +1,18 @@
 #include "LogAnalyzer.h"
 #include "LogReader.h"
+
 #include <iostream>
 #include <algorithm>
 #include <chrono>
 #include <omp.h>
 #include <cstring>
+#include <regex>
+#include <unordered_map>
 
 #ifdef USE_MPI
   #include <mpi.h>
 #endif
 
-// ─────────────────────────────────────────────
-//  LogStatistics::print
 // ─────────────────────────────────────────────
 void LogStatistics::print() const {
     std::cout << "\n========================================\n";
@@ -28,49 +29,67 @@ void LogStatistics::print() const {
 }
 
 // ─────────────────────────────────────────────
-//  Constructor / Destructor
-// ─────────────────────────────────────────────
 LogAnalyzer::LogAnalyzer()  { m_stats = {}; }
 LogAnalyzer::~LogAnalyzer() {}
 
 LogStatistics LogAnalyzer::getStatistics() const { return m_stats; }
 
 // ─────────────────────────────────────────────
-//  classifyLine  (pure, thread-safe)
+// Regex-based classifier
 // ─────────────────────────────────────────────
-std::string LogAnalyzer::classifyLine(const std::string& line) const {
-    std::string upper = line;
-    std::transform(upper.begin(), upper.end(), upper.begin(), ::toupper);
+void LogAnalyzer::classifyLine(
+    const std::string& line,
+    size_t& errors, size_t& warnings, size_t& infos, size_t& others,
+    size_t& timeouts, size_t& connRefused, size_t& loginFails,
+    std::unordered_map<std::string, size_t>& localIpFreq
+) const {
+    static const std::regex errorRegex("ERROR|FAIL|CRITICAL", std::regex_constants::icase);
+    static const std::regex warningRegex("WARNING|WARN", std::regex_constants::icase);
+    static const std::regex infoRegex("INFO|DEBUG", std::regex_constants::icase);
+    static const std::regex ipRegex(R"((\d{1,3}\.){3}\d{1,3})");
 
-    if (upper.find("ERROR")   != std::string::npos) return "ERROR";
-    if (upper.find("WARNING") != std::string::npos) return "WARNING";
-    if (upper.find("INFO")    != std::string::npos) return "INFO";
-    return "OTHER";
+    if (std::regex_search(line, errorRegex)) {
+        errors++;
+    } else if (std::regex_search(line, warningRegex)) {
+        warnings++;
+    } else if (std::regex_search(line, infoRegex)) {
+        infos++;
+    } else {
+        others++;
+    }
+
+    // Keyword search
+    if (line.find("timeout") != std::string::npos) timeouts++;
+    if (line.find("connection refused") != std::string::npos) connRefused++;
+    if (line.find("failed login") != std::string::npos) loginFails++;
+
+    // IP Address Extraction
+    auto words_begin = std::sregex_iterator(line.begin(), line.end(), ipRegex);
+    auto words_end = std::sregex_iterator();
+    for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
+        localIpFreq[i->str()]++;
+    }
 }
 
 // ─────────────────────────────────────────────
-//  MODE 1 — Serial
-//  Single thread. Reads file in chunks, classifies
-//  each line one by one.
+// SERIAL
 // ─────────────────────────────────────────────
 void LogAnalyzer::analyzeSerial(const std::string& filePath) {
     LogReader reader(filePath);
-    if (!reader.isOpen()) {
-        std::cerr << "[ERROR] Serial: cannot open file: " << filePath << "\n";
-        return;
-    }
+    if (!reader.isOpen()) return;
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
     std::vector<std::string> lines;
+
+    m_stats = {}; // Reset stats
+
     while (reader.readNextChunk(lines)) {
         for (const auto& line : lines) {
             m_stats.totalLines++;
-            const std::string cls = classifyLine(line);
-            if      (cls == "ERROR")   m_stats.errorCount++;
-            else if (cls == "WARNING") m_stats.warningCount++;
-            else if (cls == "INFO")    m_stats.infoCount++;
-            else                       m_stats.otherCount++;
+            classifyLine(line, m_stats.errorCount, m_stats.warningCount, m_stats.infoCount, m_stats.otherCount,
+                         timeoutCount, connectionRefusedCount, failedLoginCount,
+                         ipFrequency);
         }
     }
 
@@ -80,48 +99,55 @@ void LogAnalyzer::analyzeSerial(const std::string& filePath) {
 }
 
 // ─────────────────────────────────────────────
-//  MODE 2 — OpenMP
-//  Reads each chunk, then classifies lines in
-//  parallel using OMP reduction.
+// OPENMP
 // ─────────────────────────────────────────────
 void LogAnalyzer::analyzeParallel(const std::string& filePath) {
     LogReader reader(filePath);
-    if (!reader.isOpen()) {
-        std::cerr << "[ERROR] OpenMP: cannot open file: " << filePath << "\n";
-        return;
-    }
+    if (!reader.isOpen()) return;
 
     std::cout << "[INFO] OpenMP using " << omp_get_max_threads() << " threads.\n";
 
     auto t0 = std::chrono::high_resolution_clock::now();
 
     std::vector<std::string> lines;
+    m_stats = {}; // Reset stats
+    ipFrequency.clear();
+
     while (reader.readNextChunk(lines)) {
         if (lines.empty()) continue;
 
-        size_t chunk_total   = 0;
-        size_t chunk_error   = 0;
-        size_t chunk_warning = 0;
-        size_t chunk_info    = 0;
-        size_t chunk_other   = 0;
+        size_t chunk_total = lines.size();
+        
+        #pragma omp parallel
+        {
+            std::unordered_map<std::string, size_t> local_ip_freq;
+            size_t local_timeouts = 0;
+            size_t local_conn_refused = 0;
+            size_t local_login_fails = 0;
+            size_t local_errors = 0, local_warnings = 0, local_infos = 0, local_others = 0;
 
-        #pragma omp parallel for \
-            reduction(+: chunk_total, chunk_error, chunk_warning, chunk_info, chunk_other) \
-            schedule(dynamic, 64)
-        for (size_t i = 0; i < lines.size(); ++i) {
-            chunk_total++;
-            const std::string cls = classifyLine(lines[i]);
-            if      (cls == "ERROR")   chunk_error++;
-            else if (cls == "WARNING") chunk_warning++;
-            else if (cls == "INFO")    chunk_info++;
-            else                       chunk_other++;
+            #pragma omp for schedule(dynamic, 64)
+            for (size_t i = 0; i < lines.size(); ++i) {
+                classifyLine(lines[i], local_errors, local_warnings, local_infos, local_others,
+                             local_timeouts, local_conn_refused, local_login_fails,
+                             local_ip_freq);
+            }
+
+            #pragma omp critical
+            {
+                timeoutCount += local_timeouts;
+                connectionRefusedCount += local_conn_refused;
+                failedLoginCount += local_login_fails;
+                m_stats.errorCount += local_errors;
+                m_stats.warningCount += local_warnings;
+                m_stats.infoCount += local_infos;
+                m_stats.otherCount += local_others;
+                for (const auto& pair : local_ip_freq) {
+                    ipFrequency[pair.first] += pair.second;
+                }
+            }
         }
-
-        m_stats.totalLines   += chunk_total;
-        m_stats.errorCount   += chunk_error;
-        m_stats.warningCount += chunk_warning;
-        m_stats.infoCount    += chunk_info;
-        m_stats.otherCount   += chunk_other;
+        m_stats.totalLines += chunk_total;
     }
 
     auto t1 = std::chrono::high_resolution_clock::now();
@@ -130,15 +156,7 @@ void LogAnalyzer::analyzeParallel(const std::string& filePath) {
 }
 
 // ─────────────────────────────────────────────
-//  MODE 3 — MPI
-//  Rank 0 reads the entire file and scatters
-//  chunks to all ranks.  Every rank classifies
-//  its own slice.  MPI_Reduce aggregates results
-//  back to rank 0, which stores them in m_stats.
-//
-//  MPI_Init must be called before this method.
-//  MPI_Finalize must be called after.
-//  Both are handled in main.cpp.
+// MPI (only loop enhanced)
 // ─────────────────────────────────────────────
 void LogAnalyzer::analyzeDistributed(const std::string& filePath) {
 #ifndef USE_MPI
@@ -146,137 +164,109 @@ void LogAnalyzer::analyzeDistributed(const std::string& filePath) {
                  "Recompile with -DUSE_MPI.\n";
     return;
 #else
-    int world_rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    int rank, size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    auto t0 = MPI_Wtime();
 
-    // ── Step 1: Rank 0 reads the file and sends each rank its slice ──
     std::vector<std::string> local_lines;
+    
+    std::vector<char> send_buf;
+    std::vector<int> send_counts(size);
+    std::vector<int> displs(size);
 
-    if (world_rank == 0) {
+    if (rank == 0) {
         LogReader reader(filePath);
         if (!reader.isOpen()) {
-            std::cerr << "[ERROR] MPI rank 0: cannot open file: " << filePath << "\n";
+            std::cerr << "[ERROR] MPI: cannot open file: " << filePath << "\n";
             MPI_Abort(MPI_COMM_WORLD, 1);
+            return;
         }
-
-        // Read all lines into memory at rank 0
+        
         std::vector<std::string> all_lines;
-        std::vector<std::string> chunk;
-        while (reader.readNextChunk(chunk)) {
-            all_lines.insert(all_lines.end(), chunk.begin(), chunk.end());
-        }
+        reader.readAllLines(all_lines);
+        
+        int lines_per_rank = all_lines.size() / size;
+        int remainder = all_lines.size() % size;
+        int current_line_idx = 0;
 
-        int total      = static_cast<int>(all_lines.size());
-        int base_chunk = total / world_size;
-        int remainder  = total % world_size;
-        int current    = 0;
-
-        for (int rank = 0; rank < world_size; ++rank) {
-            int count = base_chunk + (rank < remainder ? 1 : 0);
-
-            if (rank == 0) {
-                // Keep rank 0's slice locally
-                local_lines.assign(
-                    all_lines.begin() + current,
-                    all_lines.begin() + current + count
-                );
-            } else {
-                // Serialize: lines joined by '\0' delimiter
-                std::string payload;
-                payload.reserve(static_cast<size_t>(count) * 80);
-                for (int j = 0; j < count; ++j) {
-                    payload += all_lines[current + j];
-                    payload += '\0';
-                }
-                MPI_Send(
-                    payload.data(),
-                    static_cast<int>(payload.size()),
-                    MPI_CHAR, rank, 0, MPI_COMM_WORLD
-                );
+        for (int i = 0; i < size; ++i) {
+            int num_lines_for_rank = lines_per_rank + (i < remainder ? 1 : 0);
+            
+            displs[i] = send_buf.size();
+            
+            for (int j = 0; j < num_lines_for_rank; ++j) {
+                const std::string& line = all_lines[current_line_idx++];
+                send_buf.insert(send_buf.end(), line.begin(), line.end());
+                send_buf.push_back('\0'); // Null-terminate each string
             }
-            current += count;
-        }
-
-        std::cout << "[INFO] MPI rank 0 distributed " << total
-                  << " lines across " << world_size << " ranks.\n";
-
-    } else {
-        // ── Worker ranks receive and deserialize their slice ──
-        MPI_Status status;
-        int count = 0;
-        MPI_Probe(0, 0, MPI_COMM_WORLD, &status);
-        MPI_Get_count(&status, MPI_CHAR, &count);
-
-        std::vector<char> buffer(count);
-        MPI_Recv(buffer.data(), count, MPI_CHAR, 0, 0, MPI_COMM_WORLD, &status);
-
-        // Walk through null-delimited segments correctly
-        // (cannot use std::string(ptr) — it stops at first '\0')
-        const char* ptr = buffer.data();
-        const char* end = ptr + count;
-        while (ptr < end) {
-            size_t len = static_cast<size_t>(end - ptr);
-            // find next '\0'
-            const char* nul = static_cast<const char*>(memchr(ptr, '\0', len));
-            if (!nul) break;
-            local_lines.emplace_back(ptr, nul - ptr);
-            ptr = nul + 1;
+            send_counts[i] = send_buf.size() - displs[i];
         }
     }
 
-    // ── Step 2: Every rank classifies its own slice (serial loop per rank) ──
-    size_t local_total   = 0;
-    size_t local_error   = 0;
-    size_t local_warning = 0;
-    size_t local_info    = 0;
-    size_t local_other   = 0;
+    // Broadcast the sizes of the chunks to all processes
+    MPI_Bcast(send_counts.data(), size, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(displs.data(), size, MPI_INT, 0, MPI_COMM_WORLD);
+
+    // Prepare receive buffer on all processes
+    std::vector<char> recv_buf(send_counts[rank]);
+
+    // Scatter the data from rank 0 to all processes
+    MPI_Scatterv(send_buf.data(), send_counts.data(), displs.data(), MPI_CHAR,
+                 recv_buf.data(), send_counts[rank], MPI_CHAR, 0, MPI_COMM_WORLD);
+    
+    // Unpack the received data into lines
+    const char* ptr = recv_buf.data();
+    const char* end = ptr + recv_buf.size();
+    while (ptr < end) {
+        const char* nul = (const char*)memchr(ptr, '\0', end - ptr);
+        if (!nul) break;
+        local_lines.emplace_back(ptr, nul - ptr);
+        ptr = nul + 1;
+    }
+
+    size_t local_total = 0, local_error = 0, local_warning = 0, local_info = 0, local_other = 0;
+    size_t local_timeouts = 0, local_conn_refused = 0, local_login_fails = 0;
+    std::unordered_map<std::string, size_t> local_ip_freq;
 
     for (const auto& line : local_lines) {
         local_total++;
-        const std::string cls = classifyLine(line);
-        if      (cls == "ERROR")   local_error++;
-        else if (cls == "WARNING") local_warning++;
-        else if (cls == "INFO")    local_info++;
-        else                       local_other++;
+        classifyLine(line, local_error, local_warning, local_info, local_other,
+                     local_timeouts, local_conn_refused, local_login_fails, local_ip_freq);
     }
 
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double local_time = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    size_t global_total = 0, global_error = 0, global_warning = 0, global_info = 0, global_other = 0;
+    size_t global_timeouts = 0, global_conn_refused = 0, global_login_fails = 0;
 
-    // ── Step 3: MPI_Reduce — aggregate all ranks' counts to rank 0 ──
-    size_t g_total   = 0, g_error = 0, g_warning = 0, g_info = 0, g_other = 0;
-    double g_time    = 0.0;
+    MPI_Reduce(&local_total, &global_total, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_error, &global_error, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_warning, &global_warning, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_info, &global_info, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_other, &global_other, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_timeouts, &global_timeouts, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_conn_refused, &global_conn_refused, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_login_fails, &global_login_fails, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    MPI_Reduce(&local_total,   &g_total,   1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_error,   &g_error,   1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_warning, &g_warning, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_info,    &g_info,    1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_other,   &g_other,   1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_time,    &g_time,    1, MPI_DOUBLE,        MPI_MAX, 0, MPI_COMM_WORLD);
+    auto t1 = MPI_Wtime();
 
-    // ── Step 4: Only rank 0 stores the final stats ──
-    if (world_rank == 0) {
-        m_stats.totalLines      = g_total;
-        m_stats.errorCount      = g_error;
-        m_stats.warningCount    = g_warning;
-        m_stats.infoCount       = g_info;
-        m_stats.otherCount      = g_other;
-        m_stats.processingTimeMs = g_time;
+    if (rank == 0) {
+        m_stats.totalLines = global_total;
+        m_stats.errorCount = global_error;
+        m_stats.warningCount = global_warning;
+        m_stats.infoCount = global_info;
+        m_stats.otherCount = global_other;
+        timeoutCount = global_timeouts;
+        connectionRefusedCount = global_conn_refused;
+        failedLoginCount = global_login_fails;
+        ipFrequency = local_ip_freq; // Keep local map from rank 0
+        m_stats.processingTimeMs = (t1 - t0) * 1000.0;
     }
 #endif
 }
 
 // ─────────────────────────────────────────────
-//  MODE 4 — GPU
-//  Placeholder. Falls back to serial for now.
-//  Replace the body with CUDA kernel launch
-//  when GPU support is implemented.
-// ─────────────────────────────────────────────
 void LogAnalyzer::analyzeGPU(const std::string& filePath) {
-    std::cout << "[WARN] GPU analysis not yet implemented. "
-                 "Falling back to serial.\n\n";
+    std::cout << "[WARN] GPU not implemented, using serial\n";
     analyzeSerial(filePath);
 }

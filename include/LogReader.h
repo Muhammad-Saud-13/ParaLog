@@ -15,12 +15,17 @@
  * - Supporting different log formats (if needed)
  */
 class LogReader {
+private:
+    std::ifstream m_file;
+    const size_t m_chunkSize;
+
 public:
     /**
      * @brief Constructor that takes the file path and opens the file.
      * @param filePath Path to the log file
+     * @param chunkSize The desired size of the chunk in bytes.
      */
-    explicit LogReader(const std::string& filePath);
+    explicit LogReader(const std::string& filePath, size_t chunkSize = 8192);
     
     /**
      * @brief Destructor
@@ -36,14 +41,15 @@ public:
     /**
      * @brief Reads the next chunk of lines from the file.
      * @param lines A vector to be filled with the lines from the chunk.
-     * @param chunkSize The desired size of the chunk in bytes.
      * @return True if lines were read, false if the end of the file has been reached.
      */
-    bool readNextChunk(std::vector<std::string>& lines, size_t chunkSize = 16 * 1024 * 1024);
+    bool readNextChunk(std::vector<std::string>& lines);
 
-private:
-    std::ifstream m_fileStream;
-    std::string m_leftover; // Holds partial line from the end of the previous chunk
+    /**
+     * @brief Reads all lines from the file into a vector.
+     * @param lines A vector to be filled with all lines from the file.
+     */
+    void readAllLines(std::vector<std::string>& lines);
 };
 
 #endif // LOGREADER_H

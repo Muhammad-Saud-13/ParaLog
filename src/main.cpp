@@ -92,6 +92,7 @@ int main(int argc, char* argv[]) {
         printBanner();
         std::cout << "[INFO] File : " << filePath << "\n";
         std::cout << "[INFO] Mode : " << modeStr  << "\n\n";
+        std::cout << std::flush; // Force flush for MPI
     }
 #else
     printBanner();

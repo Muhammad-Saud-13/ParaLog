@@ -23,3 +23,17 @@
 2026-03-11 10:01:15 [WARNING] Response time degradation detected
 2026-03-11 10:01:20 [INFO] Load balancer adjusted
 2026-03-11 10:01:25 [INFO] System performance normalized
+2026-03-11 10:02:01 [CRITICAL] Core service unresponsive. IP: 192.168.1.1
+2026-03-11 10:02:02 [DEBUG] User session details for user_id: 550e8400-e29b-41d4-a716-446655440000
+Just a random unformatted line.
+2026-03-11 10:02:05 [WARN] Deprecated API endpoint accessed from 10.0.0.5
+2026-03-11 10:02:10 [INFO] User 'admin' from 172.16.0.1 initiated a system scan.
+2026-03-11 10:02:15 [FAIL] Authentication service failed login for user 'guest' from IP 203.0.113.25
+2026-03-11 10:02:18 [ERROR] Payment gateway connection refused from our server 198.51.100.2
+Another line without any specific format.
+2026-03-11 10:02:20 [DEBUG] Analyzing packet from 192.168.1.1 - checksum OK.
+2026-03-11 10:02:25 [WARNING] Request from 10.0.0.5 resulted in a timeout.
+2026-03-11 10:02:30 [INFO] Successfully processed batch job #42.
+2026-03-11 10:02:35 [FAIL] Critical database backup process has failed.
+2026-03-11 10:02:40 [ERROR] User 'root' failed login attempt from 203.0.113.25.
+2026-03-11 10:02:45 [INFO] Shutting down application.

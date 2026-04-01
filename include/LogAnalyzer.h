@@ -2,6 +2,9 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include <fstream>
+#include <regex>
 
 // ─────────────────────────────────────────────
 //  All 4 analysis modes
@@ -29,20 +32,21 @@ struct LogStatistics {
 
 // ─────────────────────────────────────────────
 //  LogAnalyzer
-//
-//  Each public method is fully self-contained:
-//    - opens the file itself via LogReader
-//    - runs its own parallelism strategy
-//    - stores results in m_stats
-//
-//  main.cpp only calls one of these, then prints.
 // ─────────────────────────────────────────────
 class LogAnalyzer {
+private:
+    LogStatistics m_stats;
+
+    // Enhanced analysis members
+    size_t timeoutCount;
+    size_t connectionRefusedCount;
+    size_t failedLoginCount;
+    std::unordered_map<std::string, size_t> ipFrequency;
+
 public:
     LogAnalyzer();
     ~LogAnalyzer();
 
-    // Four fully self-contained entry points
     void analyzeSerial      (const std::string& filePath);
     void analyzeParallel    (const std::string& filePath);
     void analyzeDistributed (const std::string& filePath);
@@ -51,8 +55,10 @@ public:
     LogStatistics getStatistics() const;
 
 private:
-    LogStatistics m_stats;
-
-    // Shared line classifier (pure function, thread-safe)
-    std::string classifyLine(const std::string& line) const;
+    void classifyLine(
+        const std::string& line,
+        size_t& errors, size_t& warnings, size_t& infos, size_t& others,
+        size_t& timeouts, size_t& connRefused, size_t& loginFails,
+        std::unordered_map<std::string, size_t>& localIpFreq
+    ) const;
 };
