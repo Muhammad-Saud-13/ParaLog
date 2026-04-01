@@ -61,14 +61,17 @@ You can run the application using the `build.ps1` script or by calling the execu
 The script will automatically build the project if needed and then run it.
 
 ```powershell
-# Run analysis in parallel mode (default)
+# Run analysis in openmp mode (default)
 .\build.ps1 run data/stress_test.log
 
-# Explicitly run analysis in parallel mode
-.\build.ps1 run data/stress_test.log parallel
+# Explicitly run analysis in openmp mode
+.\build.ps1 run data/stress_test.log openmp
 
 # Explicitly run analysis in serial mode
 .\build.ps1 run data/stress_test.log serial
+
+# Run analysis in mpi mode
+mpiexec -n 4 .\build\bin\paralog.exe data/stress_test.log mpi
 ```
 
 #### Running the Executable Directly
@@ -78,14 +81,17 @@ Once the project is built, you can run the executable from the root directory.
 ```powershell
 # SYNTAX: .\build\bin\paralog.exe <log_file_path> [mode]
 
-# Run analysis in parallel mode (default)
+# Run analysis in openmp mode (default)
 .\build\bin\paralog.exe data/stress_test.log
 
-# Explicitly run analysis in parallel mode
-.\build\bin\paralog.exe data/stress_test.log parallel
+# Explicitly run analysis in openmp mode
+.\build\bin\paralog.exe data/stress_test.log openmp
 
 # Explicitly run analysis in serial mode
 .\build\bin\paralog.exe data/stress_test.log serial
+
+# Run analysis in mpi mode
+mpiexec -n 4 .\build\bin\paralog.exe data/stress_test.log mpi
 ```
 
 ## �🛠️ Build Requirements
