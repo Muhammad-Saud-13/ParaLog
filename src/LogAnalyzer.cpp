@@ -8,9 +8,53 @@
 #include <cstring>
 #include <regex>
 #include <unordered_map>
+#include <sstream>
 
 #ifdef USE_MPI
   #include <mpi.h>
+
+  // Custom MPI data type for LogStatistics
+  static MPI_Datatype MPI_Line_Stats;
+  static MPI_Op MPI_SUM_Stats;
+
+  static void sumLogStatistics(void* invec, void* inoutvec, int* len, [[maybe_unused]] MPI_Datatype* datatype) {
+    LogStatistics* in = (LogStatistics*)invec;
+    LogStatistics* inout = (LogStatistics*)inoutvec;
+
+    for (int i = 0; i < *len; i++) {
+      inout[i].totalLines += in[i].totalLines;
+      inout[i].errorCount += in[i].errorCount;
+      inout[i].warningCount += in[i].warningCount;
+      inout[i].infoCount += in[i].infoCount;
+      inout[i].otherCount += in[i].otherCount;
+    }
+  }
+
+  static void defineMpiStatsType() {
+    static bool typeDefined = false;
+    if (typeDefined)
+      return;
+
+    const int nitems = 5;
+    int blocklengths[nitems] = {1, 1, 1, 1, 1};
+    MPI_Datatype types[nitems] = {MPI_UNSIGNED_LONG, MPI_UNSIGNED_LONG,
+                                    MPI_UNSIGNED_LONG, MPI_UNSIGNED_LONG,
+                                    MPI_UNSIGNED_LONG};
+
+    MPI_Aint offsets[nitems];
+    offsets[0] = offsetof(LogStatistics, totalLines);
+    offsets[1] = offsetof(LogStatistics, errorCount);
+    offsets[2] = offsetof(LogStatistics, warningCount);
+    offsets[3] = offsetof(LogStatistics, infoCount);
+    offsets[4] = offsetof(LogStatistics, otherCount);
+
+    MPI_Type_create_struct(nitems, blocklengths, offsets, types, &MPI_Line_Stats);
+    MPI_Type_commit(&MPI_Line_Stats);
+
+    MPI_Op_create(sumLogStatistics, 1, &MPI_SUM_Stats);
+
+    typeDefined = true;
+  }
 #endif
 
 // ─────────────────────────────────────────────
@@ -29,7 +73,14 @@ void LogStatistics::print() const {
 }
 
 // ─────────────────────────────────────────────
-LogAnalyzer::LogAnalyzer()  { m_stats = {}; }
+LogAnalyzer::LogAnalyzer()
+    : m_stats({}),
+      timeoutCount(0),
+      connectionRefusedCount(0),
+      failedLoginCount(0),
+      ipFrequency() {
+}
+
 LogAnalyzer::~LogAnalyzer() {}
 
 LogStatistics LogAnalyzer::getStatistics() const { return m_stats; }
@@ -156,7 +207,7 @@ void LogAnalyzer::analyzeParallel(const std::string& filePath) {
 }
 
 // ─────────────────────────────────────────────
-// MPI (only loop enhanced)
+// MPI - FINAL WORKING VERSION
 // ─────────────────────────────────────────────
 void LogAnalyzer::analyzeDistributed(const std::string& filePath) {
 #ifndef USE_MPI
@@ -167,15 +218,13 @@ void LogAnalyzer::analyzeDistributed(const std::string& filePath) {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    defineMpiStatsType();
 
     auto t0 = MPI_Wtime();
 
-    std::vector<std::string> local_lines;
+    std::vector<std::string> all_lines;
     
-    std::vector<char> send_buf;
-    std::vector<int> send_counts(size);
-    std::vector<int> displs(size);
-
+    // ============ STEP 1: Rank 0 reads file ============
     if (rank == 0) {
         LogReader reader(filePath);
         if (!reader.isOpen()) {
@@ -183,83 +232,162 @@ void LogAnalyzer::analyzeDistributed(const std::string& filePath) {
             MPI_Abort(MPI_COMM_WORLD, 1);
             return;
         }
-        
-        std::vector<std::string> all_lines;
         reader.readAllLines(all_lines);
-        
-        int lines_per_rank = all_lines.size() / size;
-        int remainder = all_lines.size() % size;
-        int current_line_idx = 0;
+    }
 
-        for (int i = 0; i < size; ++i) {
-            int num_lines_for_rank = lines_per_rank + (i < remainder ? 1 : 0);
-            
-            displs[i] = send_buf.size();
-            
-            for (int j = 0; j < num_lines_for_rank; ++j) {
-                const std::string& line = all_lines[current_line_idx++];
-                send_buf.insert(send_buf.end(), line.begin(), line.end());
-                send_buf.push_back('\0'); // Null-terminate each string
-            }
-            send_counts[i] = send_buf.size() - displs[i];
+    // ============ STEP 2: Broadcast line count ============
+    int total_lines = (rank == 0) ? (int)all_lines.size() : 0;
+    MPI_Bcast(&total_lines, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+    if (total_lines <= 0) {
+        if (rank == 0) {
+            std::cerr << "[ERROR] No lines to process.\n";
+        }
+        return;
+    }
+
+    // ============ STEP 3: Rank 0 serializes ============
+    std::string serialized;
+    
+    if (rank == 0) {
+        for (const auto& line : all_lines) {
+            serialized += line;
+            serialized += '\n';
         }
     }
 
-    // Broadcast the sizes of the chunks to all processes
-    MPI_Bcast(send_counts.data(), size, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Bcast(displs.data(), size, MPI_INT, 0, MPI_COMM_WORLD);
+    // ============ STEP 4: Broadcast serialized size ============
+    int serialized_size = (rank == 0) ? (int)serialized.size() : 0;
+    MPI_Bcast(&serialized_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    // Prepare receive buffer on all processes
-    std::vector<char> recv_buf(send_counts[rank]);
-
-    // Scatter the data from rank 0 to all processes
-    MPI_Scatterv(send_buf.data(), send_counts.data(), displs.data(), MPI_CHAR,
-                 recv_buf.data(), send_counts[rank], MPI_CHAR, 0, MPI_COMM_WORLD);
+    // ============ STEP 5: Allocate and broadcast serialized data ============
+    if (rank != 0) {
+        serialized.resize(serialized_size);
+    }
     
-    // Unpack the received data into lines
-    const char* ptr = recv_buf.data();
-    const char* end = ptr + recv_buf.size();
-    while (ptr < end) {
-        const char* nul = (const char*)memchr(ptr, '\0', end - ptr);
-        if (!nul) break;
-        local_lines.emplace_back(ptr, nul - ptr);
-        ptr = nul + 1;
+    MPI_Bcast(const_cast<char*>(serialized.c_str()), serialized_size, MPI_CHAR, 0, MPI_COMM_WORLD);
+
+    // ============ STEP 6: All ranks parse the serialized string ============
+    all_lines.clear();
+    std::istringstream iss(serialized);
+    std::string line;
+    while (std::getline(iss, line)) {
+        if (!line.empty()) {
+            all_lines.push_back(line);
+        }
     }
 
-    size_t local_total = 0, local_error = 0, local_warning = 0, local_info = 0, local_other = 0;
+    // ============ STEP 7: Distribute work ============
+    int lines_per_rank = total_lines / size;
+    int remainder = total_lines % size;
+    int my_start = rank * lines_per_rank + std::min(rank, remainder);
+    int my_count = lines_per_rank + (rank < remainder ? 1 : 0);
+
+    // ============ STEP 8: Process local lines ============
+    LogStatistics local_stats = {};
     size_t local_timeouts = 0, local_conn_refused = 0, local_login_fails = 0;
     std::unordered_map<std::string, size_t> local_ip_freq;
 
-    for (const auto& line : local_lines) {
-        local_total++;
-        classifyLine(line, local_error, local_warning, local_info, local_other,
-                     local_timeouts, local_conn_refused, local_login_fails, local_ip_freq);
+    for (int i = my_start; i < my_start + my_count; ++i) {
+        if (i >= 0 && i < (int)all_lines.size()) {
+            local_stats.totalLines++;
+            classifyLine(all_lines[i], local_stats.errorCount, local_stats.warningCount,
+                         local_stats.infoCount, local_stats.otherCount, local_timeouts,
+                         local_conn_refused, local_login_fails, local_ip_freq);
+        }
     }
 
-    size_t global_total = 0, global_error = 0, global_warning = 0, global_info = 0, global_other = 0;
-    size_t global_timeouts = 0, global_conn_refused = 0, global_login_fails = 0;
+    // ============ STEP 9: Reduce statistics using built-in MPI_SUM ============
+    // ✅ KEY FIX: Use built-in MPI_SUM instead of custom operation!
+    LogStatistics global_stats = {};
+    
+    // Reduce totalLines
+    unsigned long temp_total = local_stats.totalLines;
+    MPI_Reduce(&temp_total, (unsigned long*)&global_stats.totalLines, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0,
+               MPI_COMM_WORLD);
+    
+    // Reduce errorCount
+    temp_total = local_stats.errorCount;
+    MPI_Reduce(&temp_total, (unsigned long*)&global_stats.errorCount, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0,
+               MPI_COMM_WORLD);
+    
+    // Reduce warningCount
+    temp_total = local_stats.warningCount;
+    MPI_Reduce(&temp_total, (unsigned long*)&global_stats.warningCount, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0,
+               MPI_COMM_WORLD);
+    
+    // Reduce infoCount
+    temp_total = local_stats.infoCount;
+    MPI_Reduce(&temp_total, (unsigned long*)&global_stats.infoCount, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0,
+               MPI_COMM_WORLD);
+    
+    // Reduce otherCount
+    temp_total = local_stats.otherCount;
+    MPI_Reduce(&temp_total, (unsigned long*)&global_stats.otherCount, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0,
+               MPI_COMM_WORLD);
 
-    MPI_Reduce(&local_total, &global_total, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_error, &global_error, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_warning, &global_warning, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_info, &global_info, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_other, &global_other, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_timeouts, &global_timeouts, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_conn_refused, &global_conn_refused, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(&local_login_fails, &global_login_fails, 1, MPI_UNSIGNED_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    size_t global_timeouts = 0, global_conn_refused = 0, global_login_fails = 0;
+    MPI_Reduce(&local_timeouts, &global_timeouts, 1, MPI_UNSIGNED_LONG, MPI_SUM,
+               0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_conn_refused, &global_conn_refused, 1, MPI_UNSIGNED_LONG,
+               MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_login_fails, &global_login_fails, 1, MPI_UNSIGNED_LONG,
+               MPI_SUM, 0, MPI_COMM_WORLD);
+
+    // ============ STEP 10: Gather IP frequency maps ============
+    std::string local_ip_str;
+    for (const auto& pair : local_ip_freq) {
+        local_ip_str += pair.first + ":" + std::to_string(pair.second) + ";";
+    }
+
+    int local_size = local_ip_str.size();
+    std::vector<int> all_sizes(size, 0);
+    MPI_Gather(&local_size, 1, MPI_INT, all_sizes.data(), 1, MPI_INT, 0,
+               MPI_COMM_WORLD);
+
+    std::vector<char> all_ip_strs_buf;
+    std::vector<int> ip_displs(size, 0);
+    if (rank == 0) {
+        int total_ip_buf_size = 0;
+        for (int i = 0; i < size; ++i) {
+            ip_displs[i] = total_ip_buf_size;
+            total_ip_buf_size += all_sizes[i];
+        }
+        all_ip_strs_buf.resize(total_ip_buf_size);
+    }
+
+    MPI_Gatherv(local_ip_str.data(), local_size, MPI_CHAR,
+                all_ip_strs_buf.data(), all_sizes.data(), ip_displs.data(),
+                MPI_CHAR, 0, MPI_COMM_WORLD);
 
     auto t1 = MPI_Wtime();
 
+    // ============ STEP 11: Finalize on rank 0 ============
     if (rank == 0) {
-        m_stats.totalLines = global_total;
-        m_stats.errorCount = global_error;
-        m_stats.warningCount = global_warning;
-        m_stats.infoCount = global_info;
-        m_stats.otherCount = global_other;
+        ipFrequency.clear();
+        for (int i = 0; i < size; ++i) {
+            if (all_sizes[i] > 0) {
+                std::string s(all_ip_strs_buf.data() + ip_displs[i], all_sizes[i]);
+                size_t start = 0;
+                while (start < s.length()) {
+                    size_t end_key = s.find(':', start);
+                    size_t end_val = s.find(';', end_key);
+                    if (end_key == std::string::npos || end_val == std::string::npos)
+                        break;
+
+                    std::string ip = s.substr(start, end_key - start);
+                    size_t count =
+                        std::stoul(s.substr(end_key + 1, end_val - (end_key + 1)));
+                    ipFrequency[ip] += count;
+                    start = end_val + 1;
+                }
+            }
+        }
+
+        m_stats = global_stats;
         timeoutCount = global_timeouts;
         connectionRefusedCount = global_conn_refused;
         failedLoginCount = global_login_fails;
-        ipFrequency = local_ip_freq; // Keep local map from rank 0
         m_stats.processingTimeMs = (t1 - t0) * 1000.0;
     }
 #endif
