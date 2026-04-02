@@ -25,76 +25,64 @@ ParaLog/
 ├── src/                    # Source implementation files
 │   ├── main.cpp           # Main application entry point
 │   ├── LogReader.cpp      # Log file reading module
-│   └── LogAnalyzer.cpp    # Analysis logic module
+│   ├── LogAnalyzer.cpp    # Analysis logic module
+│   └── ResultCache.cpp    # Caching logic for comparison results
 ├── include/               # Header files
 │   ├── LogReader.h        # Log reader interface
-│   └── LogAnalyzer.h      # Analyzer interface and statistics
+│   ├── LogAnalyzer.h      # Analyzer interface and statistics
+│   └── ResultCache.h      # Cache management interface
 ├── data/                  # Sample log files
-│   └── sample.log         # Example log file for testing
-├── benchmarks/            # Performance comparison results
+├── build/                 # Build output directory
+│   └── comparison_cache.json # Cached analysis results
 ├── CMakeLists.txt         # CMake build configuration
+├── build.ps1              # PowerShell build script
+├── run_guide.md           # Quick command reference
 └── README.md              # Project documentation
 ```
 
-## � Building and Running
+## 🛠️ Building and Running
 
-This project uses a PowerShell script to simplify the build and run process on Windows.
+This project uses a PowerShell script to simplify the build process on Windows. The workflow is designed around running individual analyses and then comparing the cached results.
 
 ### 1. Build the Project
 
-Open a PowerShell terminal in the project root and run the `build.ps1` script. You can specify `release` or `debug`.
+Open a PowerShell terminal in the project root and run the `build.ps1` script.
 
 ```powershell
-# Build in Release mode (recommended for performance)
-.\build.ps1 release
-
-# Build in Debug mode
-.\build.ps1 debug
+.\build.ps1
 ```
 
-### 2. Run the Application
+### 2. Run and Cache Analysis Modes
 
-You can run the application using the `build.ps1` script or by calling the executable directly.
+To perform a comparison, you must first run each analysis mode on the desired log file. This executes the analysis and saves the result to `build/comparison_cache.json`.
 
-#### Using the Build Script
+#### Serial Mode (Baseline)
+```powershell
+.\build\bin\paralog.exe data\large_sample.log serial
+```
 
-The script will automatically build the project if needed and then run it.
+#### OpenMP Mode
+```powershell
+.\build\bin\paralog.exe data\large_sample.log openmp
+```
+
+#### MPI Mode
+This requires an MPI environment (like MS-MPI).
+```powershell
+mpiexec -n 4 .\build\bin\paralog.exe data\large_sample.log mpi
+```
+
+### 3. Compare Cached Results
+
+Once results are cached, use the `compare` command to generate a report with performance and speedup calculations.
 
 ```powershell
-# Run analysis in openmp mode (default)
-.\build.ps1 run data/stress_test.log
+# SYNTAX: .\build\bin\paralog.exe compare <log_file_path>
 
-# Explicitly run analysis in openmp mode
-.\build.ps1 run data/stress_test.log openmp
-
-# Explicitly run analysis in serial mode
-.\build.ps1 run data/stress_test.log serial
-
-# Run analysis in mpi mode
-mpiexec -n 4 .\build\bin\paralog.exe data/stress_test.log mpi
+.\build\bin\paralog.exe compare data\large_sample.log
 ```
 
-#### Running the Executable Directly
-
-Once the project is built, you can run the executable from the root directory.
-
-```powershell
-# SYNTAX: .\build\bin\paralog.exe <log_file_path> [mode]
-
-# Run analysis in openmp mode (default)
-.\build\bin\paralog.exe data/stress_test.log
-
-# Explicitly run analysis in openmp mode
-.\build\bin\paralog.exe data/stress_test.log openmp
-
-# Explicitly run analysis in serial mode
-.\build\bin\paralog.exe data/stress_test.log serial
-
-# Run analysis in mpi mode
-mpiexec -n 4 .\build\bin\paralog.exe data/stress_test.log mpi
-```
-
-## �🛠️ Build Requirements
+## 🛠️ Build Requirements
 
 - **C++ Compiler**: C++17 or later (MSVC, GCC, or Clang)
 - **CMake**: Version 3.15 or higher
@@ -156,31 +144,27 @@ make
 
 ## 📊 Usage
 
-```bash
-# Run without arguments (shows help)
-paralog
+The primary workflow is to run analyses to cache results and then compare them.
 
-# Analyze a log file (basic usage)
-paralog path/to/logfile.log
+**Run an analysis:**
+```powershell
+# .\build\bin\paralog.exe <log_file> [serial | openmp | mpi]
+.\build\bin\paralog.exe data\sample.log serial
+```
 
-# Future: Specify analysis mode
-paralog path/to/logfile.log --mode serial
-paralog path/to/logfile.log --mode parallel
-paralog path/to/logfile.log --mode distributed
-paralog path/to/logfile.log --mode gpu
+**Compare results for a file:**
+```powershell
+# .\build\bin\paralog.exe compare <log_file>
+.\build\bin\paralog.exe compare data\sample.log
 ```
 
 ## 🧪 Testing with Sample Data
 
 ```bash
-# Small sample (25 lines) - Quick test
-paralog data/sample.log
-
-# Medium sample (95 lines) - Detailed test
-paralog data/large_sample.log
-
-# Large stress test (25,000 lines) - Performance benchmark
-paralog data/stress_test.log
+# Run individual analyses first, then compare.
+.\build\bin\paralog.exe compare data\sample.log
+.\build\bin\paralog.exe compare data\large_sample.log
+.\build\bin\paralog.exe compare data\stress_test.log
 ```
 
 ## 📈 Development Phases
@@ -188,40 +172,32 @@ paralog data/stress_test.log
 ### ✅ Phase 1: Project Initialization (Complete)
 - [x] Repository structure
 - [x] CMake configuration
-- [x] Placeholder modules
-- [x] Basic compilation test
 
 ### ✅ Phase 2: Log File Reader (Complete)
-- [x] LogReader class implementation
-- [x] Line-by-line file reading
-- [x] Error handling
-- [x] Sample data files
+- [x] `LogReader` class implementation
+- [x] Error handling and sample data
 
 ### ✅ Phase 3: Serial Analyzer - Baseline (Complete)
 - [x] Serial analysis algorithm
-- [x] Pattern matching (ERROR/WARNING/INFO)
-- [x] Statistics computation
-- [x] Performance measurement with chrono
-- [x] Throughput calculation
-- [x] Tested with 25K lines: ~926K lines/second
+- [x] Statistics computation and performance measurement
 
-### 🔄 Phase 4: Parallel CPU (OpenMP) (Upcoming)
-- [ ] OpenMP parallel analysis
-- [ ] Thread optimization
-- [ ] Performance comparison vs serial
-- [ ] Speedup calculation
+### ✅ Phase 4: Parallel CPU (OpenMP) (Complete)
+- [x] OpenMP parallel analysis implementation
+- [x] Performance comparison vs. serial
 
-### 🔄 Phase 5: Distributed Processing (MPI) (Upcoming)
-- [ ] MPI implementation
-- [ ] Data distribution strategy
-- [ ] Cluster benchmarking
-- [ ] Scalability testing
+### ✅ Phase 5: Distributed Processing (MPI) (Complete)
+- [x] MPI implementation for distributed analysis
+- [x] Data distribution strategy
 
-### 🔄 Phase 6: GPU Acceleration (OpenCL) (Upcoming)
+### ✅ Phase 6: Cache-based Comparison (Complete)
+- [x] Cache results from analysis runs into a JSON file
+- [x] New `compare` mode to generate reports from cached data
+- [x] Speedup calculations for all parallel modes vs. serial
+
+### 🔄 Phase 7: GPU Acceleration (OpenCL) (Upcoming)
 - [ ] OpenCL kernel implementation
 - [ ] GPU memory management
-- [ ] Performance optimization
-- [ ] Comparison with CPU implementations
+- [ ] Performance optimization and comparison
 
 ## 🤝 Contributing
 

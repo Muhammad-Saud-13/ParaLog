@@ -19,12 +19,16 @@ set(SOURCES
     src/main.cpp
     src/LogReader.cpp
     src/LogAnalyzer.cpp
+    src/ComparisonRunner.cpp
+    src/ResultCache.cpp
 )
 
 # Header files
 set(HEADERS
     include/LogReader.h
     include/LogAnalyzer.h
+    include/ComparisonRunner.h
+    include/ResultCache.h
 )
 
 # Create executable
