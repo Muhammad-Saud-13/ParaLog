@@ -265,16 +265,14 @@ void LogAnalyzer::analyzeDistributed(const std::string& filePath) {
         serialized.resize(serialized_size);
     }
     
-    MPI_Bcast(const_cast<char*>(serialized.c_str()), serialized_size, MPI_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Bcast(serialized.data(), serialized_size, MPI_CHAR, 0, MPI_COMM_WORLD);
 
     // ============ STEP 6: All ranks parse the serialized string ============
     all_lines.clear();
     std::istringstream iss(serialized);
     std::string line;
     while (std::getline(iss, line)) {
-        if (!line.empty()) {
-            all_lines.push_back(line);
-        }
+        all_lines.push_back(line);
     }
 
     // ============ STEP 7: Distribute work ============

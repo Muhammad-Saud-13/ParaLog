@@ -109,8 +109,20 @@ switch ($Action.ToLower()) {
         # Forward remaining arguments to the executable
         $RemainingArgs = $args | Where-Object { $_ -ne $Action }
         
-        Write-Host "`nRunning ParaLog..." -ForegroundColor Cyan
+        Write-Host "`nRunning ParaLog CLI..." -ForegroundColor Cyan
         & $ExePath $RemainingArgs
+    }
+    "run-gui" {
+        $BuildTypeForRun = "Release"
+        $ExePath = Join-Path $BuildDir "bin/paralog_gui.exe"
+
+        if (-not (Test-Path $ExePath)) {
+            Write-Host "GUI Executable not found. Building release version first..." -ForegroundColor Yellow
+            Build-Project -BuildType $BuildTypeForRun
+        }
+        
+        Write-Host "`nRunning ParaLog GUI..." -ForegroundColor Cyan
+        & $ExePath
     }
     "test" {
         Write-Host "Test runner not yet implemented." -ForegroundColor Yellow

@@ -90,3 +90,11 @@ message(STATUS "  Build type:    ${CMAKE_BUILD_TYPE}")
 message(STATUS "  C++ standard:  ${CMAKE_CXX_STANDARD}")
 message(STATUS "  Binary output: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 message(STATUS "  MPI support:   ${USE_MPI}")
+
+# ─────────────────────────────────────────────
+#  GUI (Dear ImGui)
+# ─────────────────────────────────────────────
+option(BUILD_GUI "Build the ImGui GUI application" ON)
+if(BUILD_GUI)
+    add_subdirectory(gui)
+endif()

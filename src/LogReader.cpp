@@ -25,9 +25,7 @@ void LogReader::readAllLines(std::vector<std::string>& lines) {
     m_file.seekg(0, std::ios::beg);
     std::string line;
     while (std::getline(m_file, line)) {
-        if (!line.empty()) {
-            lines.push_back(line);
-        }
+        lines.push_back(line);
     }
 }
 
@@ -38,24 +36,14 @@ bool LogReader::readNextChunk(std::vector<std::string>& lines) {
         return false;
     }
 
-    // Read a chunk of the file
-    std::vector<char> buffer(m_chunkSize);
-    m_file.read(buffer.data(), m_chunkSize);
-    std::streamsize bytesRead = m_file.gcount();
-
-    if (bytesRead == 0) {
-        return false;
-    }
-    
-    std::string chunkStr(buffer.data(), bytesRead);
-    std::stringstream ss(chunkStr);
     std::string line;
-
-    while(std::getline(ss, line)) {
-        if(!line.empty()) {
+    for (size_t i = 0; i < m_chunkSize; ++i) {
+        if (std::getline(m_file, line)) {
             lines.push_back(line);
+        } else {
+            break;
         }
     }
 
-    return true;
+    return !lines.empty();
 }

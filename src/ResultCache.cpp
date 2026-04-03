@@ -25,8 +25,13 @@ ResultsCache load() {
         ss >> key;
 
         if (key == "\"log_file\":") {
-            ss >> currentFilePath;
-            currentFilePath = currentFilePath.substr(1, currentFilePath.length() - 3); // "path", -> path
+            std::string rest;
+            std::getline(ss, rest);
+            size_t first = rest.find_first_of('"');
+            size_t last = rest.find_last_of('"');
+            if (first != std::string::npos && last != std::string::npos && first < last) {
+                currentFilePath = rest.substr(first + 1, last - first - 1);
+            }
         } else if (key == "\"mode\":") {
             ss >> currentMode;
             currentMode = currentMode.substr(1, currentMode.length() - 3); // "mode", -> mode
@@ -74,8 +79,10 @@ void save(const ResultsCache& cache) {
 }
 
 void updateAndSave(const std::string& logFilePath, const std::string& mode, const LogStatistics& stats) {
+    std::string safePath = logFilePath;
+    for (char& c : safePath) { if (c == '\\') c = '/'; }
     ResultsCache cache = load();
-    cache[logFilePath][mode] = stats;
+    cache[safePath][mode] = stats;
     save(cache);
 }
 
